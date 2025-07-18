@@ -400,20 +400,28 @@ class ScreenAssistantApp:
         """Analyze screen in a separate thread"""
         try:
             # Update status
-            self.root.after(0, lambda: self.status_var.set("Capturing screen..."))
+            self.root.after(0, lambda: self.status_var.set("Preparing to capture screen..."))
             
-            # Minimize our window temporarily
-            self.root.after(0, self.root.iconify)
+            # Hide our window completely (not just minimize)
+            self.root.after(0, self.root.withdraw)
             
-            # Small delay to let window minimize
+            # Give time for window to hide and desktop to settle
             import time
-            time.sleep(1)
+            time.sleep(2)
+            
+            # Update status (even though window is hidden)
+            self.root.after(0, lambda: self.status_var.set("Capturing screen..."))
             
             # Capture the full screen
             screen = RegionSelector.capture_full_screen()
             
+            # Small delay before showing window again
+            time.sleep(0.5)
+            
             # Restore our window
             self.root.after(0, self.root.deiconify)
+            self.root.after(0, lambda: self.root.lift())  # Bring to front
+            self.root.after(0, lambda: self.root.focus_force())  # Give it focus
             
             # If screenshot failed
             if screen is None:
@@ -421,10 +429,17 @@ class ScreenAssistantApp:
                 self.root.after(0, self.reset_ui)
                 return
             
+            # Update status
+            self.root.after(0, lambda: self.status_var.set("Screenshot captured! Review below..."))
+            
             # Show the captured screenshot for approval
             self.root.after(0, lambda: self.show_screenshot_for_approval(screen))
             
         except Exception as e:
+            # Make sure window is restored even if there's an error
+            self.root.after(0, self.root.deiconify)
+            self.root.after(0, lambda: self.root.lift())
+            
             error_msg = f"Error: {str(e)}"
             self.root.after(0, lambda: self.status_var.set(error_msg))
             self.root.after(0, lambda: self.update_results(f"An error occurred: {str(e)}"))

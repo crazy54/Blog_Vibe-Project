@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Platform-specific screen capture - native tools for macOS, MSS for others
+Platform-specific screen capture with macOS permission handling
 """
 
 import platform
@@ -9,6 +9,8 @@ import tempfile
 import os
 from PIL import Image
 import mss
+import tkinter as tk
+from tkinter import messagebox
 
 class RegionSelector:
     """Platform-specific screen capture utility"""
@@ -24,57 +26,91 @@ class RegionSelector:
         system = platform.system().lower()
         
         if system == "darwin":  # macOS
-            return RegionSelector._capture_macos()
+            return RegionSelector._capture_macos_with_permission_check()
         else:  # Windows, Linux, etc.
             return RegionSelector._capture_mss()
     
     @staticmethod
-    def _capture_macos():
-        """Capture screen using macOS native screencapture command"""
+    def _capture_macos_with_permission_check():
+        """Capture screen on macOS with permission checking"""
         try:
-            # Create a temporary file
-            temp_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
-            temp_file.close()
+            # First, try a quick test capture to see if we have permissions
+            temp_test = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            temp_test.close()
             
-            # Use macOS screencapture command
-            # -x = no sound
-            # -t png = PNG format
-            cmd = ['screencapture', '-x', '-t', 'png', temp_file.name]
+            # Test capture
+            cmd = ['screencapture', '-x', '-t', 'png', temp_test.name]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             
-            print(f"Running macOS screencapture: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode != 0:
-                print(f"screencapture failed with return code {result.returncode}")
-                print(f"stderr: {result.stderr}")
-                if os.path.exists(temp_file.name):
-                    os.unlink(temp_file.name)
-                return None
-            
-            # Check if the file was created and has content
-            if os.path.exists(temp_file.name) and os.path.getsize(temp_file.name) > 0:
-                # Load the image
-                screenshot = Image.open(temp_file.name)
-                # Clean up temp file
-                os.unlink(temp_file.name)
-                print(f"Successfully captured macOS screen: {screenshot.size}")
-                return screenshot
+            if result.returncode == 0 and os.path.exists(temp_test.name):
+                # Check if we actually captured something meaningful
+                test_img = Image.open(temp_test.name)
+                
+                # Check if image has very few unique colors (might indicate blank desktop)
+                colors = test_img.getcolors(maxcolors=100)
+                if colors and len(colors) < 10:
+                    os.unlink(temp_test.name)
+                    return RegionSelector._show_permission_dialog()
+                
+                print(f"macOS screen capture successful: {test_img.size}")
+                os.unlink(temp_test.name)
+                
+                # Now do the actual capture
+                temp_final = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+                temp_final.close()
+                
+                result = subprocess.run(['screencapture', '-x', '-t', 'png', temp_final.name], 
+                                      capture_output=True, text=True, timeout=10)
+                
+                if result.returncode == 0 and os.path.exists(temp_final.name):
+                    final_img = Image.open(temp_final.name)
+                    os.unlink(temp_final.name)
+                    return final_img
+                else:
+                    if os.path.exists(temp_final.name):
+                        os.unlink(temp_final.name)
+                    return None
             else:
-                print("screencapture did not create a valid file")
-                if os.path.exists(temp_file.name):
-                    os.unlink(temp_file.name)
+                if os.path.exists(temp_test.name):
+                    os.unlink(temp_test.name)
+                return RegionSelector._show_permission_dialog()
+                
+        except Exception as e:
+            print(f"macOS capture error: {e}")
+            return RegionSelector._show_permission_dialog()
+    
+    @staticmethod
+    def _show_permission_dialog():
+        """Show dialog about screen recording permissions"""
+        try:
+            root = tk.Tk()
+            root.withdraw()  # Hide the main window
+            
+            result = messagebox.askyesno(
+                "Screen Recording Permission Required",
+                "This app needs Screen Recording permission to capture your screen.\n\n"
+                "Steps to enable:\n"
+                "1. Open System Preferences\n"
+                "2. Go to Security & Privacy\n"
+                "3. Click on Privacy tab\n"
+                "4. Select 'Screen Recording' from the list\n"
+                "5. Check the box next to Python or Terminal\n"
+                "6. Restart this application\n\n"
+                "Would you like to try MSS capture instead?\n"
+                "(This might work without special permissions)"
+            )
+            
+            root.destroy()
+            
+            if result:
+                return RegionSelector._capture_mss()
+            else:
                 return None
                 
-        except subprocess.TimeoutExpired:
-            print("screencapture command timed out")
-            if os.path.exists(temp_file.name):
-                os.unlink(temp_file.name)
-            return None
         except Exception as e:
-            print(f"Error in macOS screen capture: {e}")
-            if 'temp_file' in locals() and os.path.exists(temp_file.name):
-                os.unlink(temp_file.name)
-            return None
+            print(f"Permission dialog error: {e}")
+            # Fallback to MSS if dialog fails
+            return RegionSelector._capture_mss()
     
     @staticmethod
     def _capture_mss():
@@ -83,7 +119,7 @@ class RegionSelector:
             with mss.mss() as sct:
                 # Get all monitors
                 monitors = sct.monitors
-                print(f"Available monitors: {len(monitors)} (including 'all')")
+                print(f"MSS: Available monitors: {len(monitors)}")
                 
                 # Capture the primary monitor (index 1, index 0 is 'all monitors')
                 if len(monitors) > 1:
@@ -94,12 +130,23 @@ class RegionSelector:
                 
                 # Convert to PIL Image
                 img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
-                print(f"Successfully captured screen with MSS: {img.size}")
+                print(f"MSS screen capture successful: {img.size}")
                 return img
                 
         except Exception as e:
-            print(f"Error in MSS screen capture: {e}")
+            print(f"MSS capture error: {e}")
             return None
+    
+    @staticmethod
+    def open_system_preferences():
+        """Open macOS System Preferences to Screen Recording settings"""
+        try:
+            subprocess.run([
+                'open', 
+                'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+            ])
+        except Exception as e:
+            print(f"Could not open System Preferences: {e}")
     
     @staticmethod
     def test_capture_capability():
