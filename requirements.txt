@@ -1,0 +1,6 @@
+pillow>=10.0.0
+boto3>=1.34.0
+plyer>=2.1.0
+requests>=2.31.0
+pngquant-cli>=0.1.0
+mss>=9.0.1
