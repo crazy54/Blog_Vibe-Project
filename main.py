@@ -176,7 +176,7 @@ class ScreenAssistantApp:
     def __init__(self, root, mock_mode=False):
         self.root = root
         self.root.title("AI Screen Assistant")
-        self.root.geometry("600x500")
+        self.root.geometry("800x700")
         self.root.resizable(True, True)
         
         # Set mock mode
@@ -298,13 +298,27 @@ class ScreenAssistantApp:
         )
         title_label.pack(pady=10)
         
-        # Description
-        desc_label = ttk.Label(
-            main_frame,
-            text="Press the button below to capture your screen and get AI assistance",
-            wraplength=500
+        # Instructions
+        instructions_frame = ttk.LabelFrame(main_frame, text="How to Use", padding="10")
+        instructions_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        instructions_text = (
+            "📋 Before clicking 'Analyze Screen':\n\n"
+            "1. Open the application, document, or webpage you need help with\n"
+            "2. Make sure the content is visible and in focus\n"
+            "3. Position any windows or dialogs you want the AI to see\n"
+            "4. Then click the button below to capture and analyze your screen\n\n"
+            "💡 The AI can help with code, documents, error messages, UI design, and more!"
         )
-        desc_label.pack(pady=5)
+        
+        instructions_label = ttk.Label(
+            instructions_frame,
+            text=instructions_text,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("Arial", 10)
+        )
+        instructions_label.pack()
         
         # Analyze button
         self.analyze_button = ttk.Button(
@@ -399,8 +413,8 @@ class ScreenAssistantApp:
     def analyze_screen_thread(self):
         """Analyze screen in a separate thread"""
         try:
-            # Update status
-            self.root.after(0, lambda: self.status_var.set("Preparing to capture screen..."))
+            # Step 1: Prepare for capture (10%)
+            self.root.after(0, lambda: self.update_progress(10, "Preparing to capture screen..."))
             
             # Hide our window completely (not just minimize)
             self.root.after(0, self.root.withdraw)
@@ -409,8 +423,8 @@ class ScreenAssistantApp:
             import time
             time.sleep(2)
             
-            # Update status (even though window is hidden)
-            self.root.after(0, lambda: self.status_var.set("Capturing screen..."))
+            # Step 2: Capturing screen (30%)
+            self.root.after(0, lambda: self.update_progress(30, "Capturing screen..."))
             
             # Capture the full screen
             screen = RegionSelector.capture_full_screen()
@@ -429,8 +443,8 @@ class ScreenAssistantApp:
                 self.root.after(0, self.reset_ui)
                 return
             
-            # Update status
-            self.root.after(0, lambda: self.status_var.set("Screenshot captured! Review below..."))
+            # Step 3: Screenshot captured (50%)
+            self.root.after(0, lambda: self.update_progress(50, "Screenshot captured! Review below..."))
             
             # Show the captured screenshot for approval
             self.root.after(0, lambda: self.show_screenshot_for_approval(screen))
@@ -525,6 +539,9 @@ class ScreenAssistantApp:
         """Close the approval window and retake the screenshot"""
         approval_window.destroy()
         
+        # Reset progress and start retake process
+        self.root.after(0, lambda: self.update_progress(10, "Preparing to retake screenshot..."))
+        
         # Small delay before retaking
         self.root.after(500, lambda: self.analyze_screen_thread())
     
@@ -533,22 +550,46 @@ class ScreenAssistantApp:
         # Close the approval window
         approval_window.destroy()
         
-        # Update status
-        self.status_var.set("Analyzing with AI...")
-        
-        # Analyze with Bedrock or mock
+        # Start analysis in a separate thread to avoid blocking UI
+        threading.Thread(target=self.ai_analysis_thread, args=(screen,), daemon=True).start()
+    
+    def ai_analysis_thread(self, screen):
+        """Perform AI analysis in a separate thread with progress updates"""
         try:
+            # Step 4: Processing image (60%)
+            self.root.after(0, lambda: self.update_progress(60, "Processing image..."))
+            
+            # Step 5: Compressing image (70%)
+            self.root.after(0, lambda: self.update_progress(70, "Compressing image..."))
+            
+            # Step 6: Uploading to AI (80%)
+            self.root.after(0, lambda: self.update_progress(80, "Sending to AI..."))
+            
+            # Step 7: Waiting for AI response (90%)
+            self.root.after(0, lambda: self.update_progress(90, "AI is analyzing your screen..."))
+            
+            # Perform the actual analysis
             suggestion = self.analyze_screen(screen)
             
+            # Step 8: Complete (100%)
+            self.root.after(0, lambda: self.update_progress(100, "Analysis complete!"))
+            
             # Update UI with results
-            self.update_results(suggestion)
+            self.root.after(0, lambda: self.update_results(suggestion))
+            
         except Exception as e:
             error_msg = f"Error: {str(e)}"
-            self.status_var.set(error_msg)
-            self.update_results(f"An error occurred: {str(e)}")
+            self.root.after(0, lambda: self.status_var.set(error_msg))
+            self.root.after(0, lambda: self.update_results(f"An error occurred: {str(e)}"))
         finally:
-            # Reset UI state
-            self.reset_ui()
+            # Reset UI state after a short delay to show completion
+            self.root.after(1000, self.reset_ui)
+    
+    def update_progress(self, value, status_text):
+        """Update progress bar and status text"""
+        self.progress.config(mode='determinate')
+        self.progress_var.set(value)
+        self.status_var.set(status_text)
     
     def reset_ui(self):
         """Reset UI after analysis"""
