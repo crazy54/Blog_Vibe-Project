@@ -35,6 +35,14 @@ parser = argparse.ArgumentParser(description='AI Screen Assistant')
 parser.add_argument('--mock', action='store_true', help='Run in mock mode without AWS credentials')
 args = parser.parse_args()
 
+# Thumbnail configuration constants
+THUMBNAIL_CONFIG = {
+    'max_width': 200,
+    'max_height': 150,
+    'quality': 'high',
+    'format': 'PNG'
+}
+
 class CredentialsDialog(tk.Toplevel):
     """Dialog for entering AWS credentials"""
     def __init__(self, parent):
@@ -186,6 +194,9 @@ class ScreenAssistantApp:
         self.bedrock = None
         if not self.mock_mode and BOTO3_AVAILABLE:
             self.setup_aws_client()
+        
+        # Screenshot storage and thumbnail management
+        self.current_screenshot = None
         
         # Set up the UI
         self.setup_ui()
@@ -395,6 +406,52 @@ class ScreenAssistantApp:
         # If switching to real mode, set up AWS client
         if not self.mock_mode and BOTO3_AVAILABLE:
             self.setup_aws_client()
+    
+    def store_screenshot(self, image):
+        """Store the current screenshot for thumbnail generation and display"""
+        self.current_screenshot = image.copy() if image else None
+    
+    def generate_thumbnail(self, image, max_size=None):
+        """Generate a thumbnail with aspect ratio preservation and size constraints
+        
+        Args:
+            image: PIL Image object to create thumbnail from
+            max_size: Tuple of (max_width, max_height), defaults to THUMBNAIL_CONFIG values
+            
+        Returns:
+            PIL Image object containing the thumbnail
+        """
+        if image is None:
+            return None
+            
+        # Use default thumbnail config if no max_size provided
+        if max_size is None:
+            max_size = (THUMBNAIL_CONFIG['max_width'], THUMBNAIL_CONFIG['max_height'])
+        
+        max_width, max_height = max_size
+        
+        # Get original dimensions
+        original_width, original_height = image.size
+        
+        # Calculate scaling ratio while preserving aspect ratio
+        width_ratio = max_width / original_width
+        height_ratio = max_height / original_height
+        scale_ratio = min(width_ratio, height_ratio)
+        
+        # Calculate new dimensions
+        new_width = int(original_width * scale_ratio)
+        new_height = int(original_height * scale_ratio)
+        
+        # Use high-quality resampling
+        try:
+            resample_filter = Image.LANCZOS
+        except AttributeError:
+            # Fallback for older PIL versions
+            resample_filter = Image.ANTIALIAS
+        
+        # Create and return the thumbnail
+        thumbnail = image.resize((new_width, new_height), resample=resample_filter)
+        return thumbnail
     
     def on_analyze_clicked(self):
         """Handle analyze button click"""
