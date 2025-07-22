@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Python Documentation Sync",
+  "description": "Monitors all Python source files and configuration files in the repository. When changes are detected, triggers documentation updates in README.md to keep project documentation synchronized with code changes.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "requirements.txt",
+      "README.md",
+      "*.py"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "The Python source files in this AI Screen Assistant project have been modified. Please review the changes and update the README.md file to ensure the documentation accurately reflects the current codebase. Focus on updating sections like installation instructions, usage examples, feature descriptions, and any API changes. Make sure the documentation stays consistent with the actual implementation."
+  }
+}

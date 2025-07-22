@@ -203,6 +203,9 @@ class ScreenAssistantApp:
         
         # Flag for tracking if analysis is in progress
         self.analyzing = False
+        
+        # Flag for tracking if viewer window is open
+        self.viewer_window = None
     
     def setup_aws_client(self):
         """Set up AWS Bedrock client"""
@@ -358,6 +361,19 @@ class ScreenAssistantApp:
         status_label = ttk.Label(main_frame, textvariable=self.status_var)
         status_label.pack(pady=5)
         
+        # Thumbnail display area
+        self.thumbnail_frame = ttk.LabelFrame(main_frame, text="Last Screenshot")
+        self.thumbnail_frame.pack(fill=tk.X, pady=(10, 5))
+        self.thumbnail_frame.pack_forget()  # Hide initially when no screenshot
+        
+        self.thumbnail_label = ttk.Label(
+            self.thumbnail_frame,
+            text="Click to view full size",
+            cursor="hand2"
+        )
+        self.thumbnail_label.pack(pady=5)
+        self.thumbnail_label.bind("<Button-1>", self.on_thumbnail_click)
+        
         # Results text area
         results_frame = ttk.LabelFrame(main_frame, text="AI Suggestions")
         results_frame.pack(fill=tk.BOTH, expand=True, pady=10)
@@ -452,6 +468,60 @@ class ScreenAssistantApp:
         # Create and return the thumbnail
         thumbnail = image.resize((new_width, new_height), resample=resample_filter)
         return thumbnail
+    
+    def get_current_screenshot(self):
+        """Get the currently stored screenshot
+        
+        Returns:
+            PIL Image object or None if no screenshot is stored
+        """
+        return self.current_screenshot
+    
+    def update_thumbnail(self, image):
+        """Update the thumbnail display with a new image"""
+        if image is None:
+            self.clear_thumbnail()
+            return
+        
+        try:
+            # Generate thumbnail
+            thumbnail = self.generate_thumbnail(image)
+            if thumbnail is None:
+                self.clear_thumbnail()
+                return
+            
+            # Convert to Tkinter PhotoImage
+            tk_thumbnail = ImageTk.PhotoImage(thumbnail)
+            
+            # Update the label
+            self.thumbnail_label.config(image=tk_thumbnail, text="")
+            self.thumbnail_label.image = tk_thumbnail  # Keep reference to prevent garbage collection
+            
+            # Show the thumbnail frame
+            self.thumbnail_frame.pack(fill=tk.X, pady=(10, 5))
+            
+        except Exception as e:
+            print(f"Error updating thumbnail: {e}")
+            self.clear_thumbnail()
+    
+    def clear_thumbnail(self):
+        """Clear the thumbnail display and hide the frame"""
+        self.thumbnail_label.config(image="", text="Click to view full size")
+        self.thumbnail_label.image = None
+        self.thumbnail_frame.pack_forget()
+    
+    def on_thumbnail_click(self, event):
+        """Handle thumbnail click to open full-size viewer"""
+        if self.current_screenshot is not None and self.viewer_window is None:
+            self.viewer_window = ScreenshotViewer(self.root, self.current_screenshot)
+            # Clear the reference when window is closed
+            self.viewer_window.protocol("WM_DELETE_WINDOW", self.on_viewer_closed)
+    
+    def on_viewer_closed(self):
+        """Handle viewer window being closed"""
+        if self.viewer_window:
+            self.viewer_window.destroy()
+            self.viewer_window = None
     
     def on_analyze_clicked(self):
         """Handle analyze button click"""
@@ -606,6 +676,10 @@ class ScreenAssistantApp:
         """Proceed with AI analysis using the approved screenshot"""
         # Close the approval window
         approval_window.destroy()
+        
+        # Store the screenshot and update thumbnail
+        self.store_screenshot(screen)
+        self.update_thumbnail(screen)
         
         # Start analysis in a separate thread to avoid blocking UI
         threading.Thread(target=self.ai_analysis_thread, args=(screen,), daemon=True).start()
@@ -798,6 +872,98 @@ The current time is {now.strftime('%H:%M:%S')} and I notice you're testing an AI
         except Exception as e:
             print(f"Analysis error: {e}")
             return f"Error analyzing screen: {str(e)}"
+
+class ScreenshotViewer(tk.Toplevel):
+    """Window for displaying full-size screenshots"""
+    
+    def __init__(self, parent, image):
+        super().__init__(parent)
+        self.parent = parent
+        self.image = image
+        
+        self.title("Screenshot Viewer")
+        self.transient(parent)
+        self.grab_set()
+        
+        # Set up the UI
+        self.setup_ui()
+        
+        # Center the window on screen
+        self.center_window()
+        
+        # Bind escape key to close
+        self.bind('<Escape>', self.on_escape_key)
+        self.focus_set()
+    
+    def setup_ui(self):
+        """Set up the viewer UI"""
+        # Create main frame
+        main_frame = ttk.Frame(self, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Calculate display size (up to 1080p)
+        max_width = 1920
+        max_height = 1080
+        
+        original_width, original_height = self.image.size
+        
+        # Calculate scaling to fit within max dimensions
+        if original_width > max_width or original_height > max_height:
+            width_ratio = max_width / original_width
+            height_ratio = max_height / original_height
+            scale_ratio = min(width_ratio, height_ratio)
+            
+            display_width = int(original_width * scale_ratio)
+            display_height = int(original_height * scale_ratio)
+            
+            # Use high-quality resampling
+            try:
+                resample_filter = Image.LANCZOS
+            except AttributeError:
+                resample_filter = Image.ANTIALIAS
+                
+            display_image = self.image.resize((display_width, display_height), resample=resample_filter)
+        else:
+            display_image = self.image
+        
+        # Convert to Tkinter PhotoImage
+        self.tk_image = ImageTk.PhotoImage(display_image)
+        
+        # Create image label
+        image_label = ttk.Label(main_frame, image=self.tk_image)
+        image_label.pack(pady=(0, 10))
+        
+        # Create close button
+        close_button = ttk.Button(
+            main_frame,
+            text="Close",
+            command=self.close_window,
+            style="Accent.TButton"
+        )
+        close_button.pack(pady=5)
+        
+        # Set window size based on content
+        self.update_idletasks()
+        width = self.winfo_reqwidth()
+        height = self.winfo_reqheight()
+        self.geometry(f"{width}x{height}")
+    
+    def center_window(self):
+        """Center the window on the screen"""
+        self.update_idletasks()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = (self.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.winfo_screenheight() // 2) - (height // 2)
+        self.geometry(f'{width}x{height}+{x}+{y}')
+    
+    def close_window(self):
+        """Close the viewer window"""
+        self.destroy()
+    
+    def on_escape_key(self, event):
+        """Handle Escape key press"""
+        self.close_window()
 
 def main():
     """Main entry point"""

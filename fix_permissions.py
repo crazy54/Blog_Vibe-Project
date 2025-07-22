@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+e#!/usr/bin/env python3
 """
 Helper script to fix macOS screen recording permissions
 """
